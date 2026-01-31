@@ -1,11 +1,18 @@
 const express = require('express');
-const cors = require('cors'); // Make sure you have: npm install cors
+const cors = require('cors');
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+require('dotenv').config();
+
 const app = express();
 
-app.use(cors()); // <--- THIS MUST BE ABOVE YOUR ROUTES
+// --- ⚙️ Middleware ---
+app.use(cors()); 
 app.use(express.json());
 
-// 🏛️ Comprehensive University Database
+// Initialize Gemini AI
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+// --- 🏛️ University Database ---
 const universities = [
     { id: 1, name: "Stanford University", country: "USA", minGPA: 9.8, cost: 60000 },
     { id: 2, name: "Harvard University", country: "USA", minGPA: 9.8, cost: 58000 },
@@ -41,11 +48,30 @@ const universities = [
     { id: 32, name: "University of Manchester", country: "UK", minGPA: 6.0, cost: 28000 }
 ];
 
-// --- 🧠 Route: Recommendations ---
+// --- 🧠 Route: AI Chat (Gemini) ---
+app.post('/api/chat', async (req, res) => {
+    try {
+        const { message, profile } = req.body;
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+        const prompt = `You are a professional Study Abroad Counsellor. 
+        Student Profile: GPA ${profile?.gpa}, Budget $${profile?.budget}, Major ${profile?.major}, Target Country ${profile?.targetCountry}.
+        Student says: "${message}"
+        Provide helpful, encouraging, and specific advice based on their profile.`;
+
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        res.json({ reply: response.text() });
+    } catch (error) {
+        console.error("AI Error:", error);
+        res.status(500).json({ reply: "I'm having trouble connecting to my brain. Please try again later!" });
+    }
+});
+
+// --- 🎓 Route: Recommendations ---
 app.post('/api/recommendations', (req, res) => {
     try {
         const { gpa, budget } = req.body;
-        
         const userGPA = parseFloat(gpa); 
         const userBudget = parseFloat(budget);
 
@@ -56,14 +82,12 @@ app.post('/api/recommendations', (req, res) => {
         const filtered = universities
             .filter(uni => uni.cost <= userBudget)
             .map(uni => {
-                let risk = "Safe"; // Changed from riskLevel to 'risk' to match Frontend
-                
+                let risk = "Safe";
                 if (userGPA < uni.minGPA - 1.0) {
                     risk = "Dream";
                 } else if (userGPA < uni.minGPA) {
                     risk = "Target";
                 }
-
                 return { ...uni, risk };
             });
 
@@ -73,15 +97,11 @@ app.post('/api/recommendations', (req, res) => {
     }
 });
 
-// --- 🔒 Route: Generate Tasks (Updated name for perfect alignment) ---
+// --- 🔒 Route: Generate Tasks ---
 app.post('/api/generate-tasks', (req, res) => {
     const { university } = req.body;
-
-    if (!university) {
-        return res.status(400).json({ message: "No university selected" });
-    }
+    if (!university) return res.status(400).json({ message: "No university selected" });
     
-    // Logic-based task generation
     const tasks = [
         { id: 1, text: `Draft personal statement specifically for ${university.name}`, status: 'pending' },
         { id: 2, text: `Obtain official transcripts for ${university.country} equivalency check`, status: 'pending' },
@@ -89,12 +109,16 @@ app.post('/api/generate-tasks', (req, res) => {
         { id: 4, text: `Prepare financial sponsorship documents for ${university.country} visa`, status: 'pending' }
     ];
 
-    // Add extra task for expensive/prestigious schools
     if (university.cost > 50000) {
         tasks.push({ id: 5, text: "Apply for external merit-based scholarships", status: 'pending' });
     }
 
-    res.json(tasks); // Returning the array directly as expected by Dashboard.js
+    res.json(tasks);
 });
 
-app.listen(5000, () => console.log("🚀 Server running on http://localhost:5000"));
+// This tells the app: "Use whatever port Render gives me, otherwise use 5000"
+const PORT = process.env.PORT || 10000; 
+
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Server is live and listening on port ${PORT}`);
+});
